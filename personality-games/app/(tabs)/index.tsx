@@ -29,23 +29,23 @@ const THEME = {
   }
 };
 
-// --- WORKING MUSIC PLAYLIST WITH TEST URLs ---
+// --- LOCAL MUSIC PLAYLIST FROM ASSETS FOLDER ---
 const PLAYLIST = [
   { 
     title: "Deep Focus", 
-    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" 
+    source: require('./assets/I run.mp3')
   },
   { 
     title: "Lounge Vibe", 
-    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" 
+    source: require('./assets/dream.mp3')
   },
   { 
     title: "Brain Flow",  
-    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" 
+    source: require('./assets/2005.mp3')
   },
   { 
     title: "Zen Garden",  
-    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" 
+    source: require('./assets/One.mp3')
   },
 ];
 
@@ -78,12 +78,13 @@ const TRIVIA_DATA: Record<GameKey, TriviaQuestion[]> = {
   ]
 };
 
-// --- FIXED MUSIC PLAYER COMPONENT ---
+// --- FIXED MUSIC PLAYER COMPONENT WITH LOCAL FILES ---
 const MusicPlayer = () => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackIndex, setTrackIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Request audio permissions and setup
   useEffect(() => {
@@ -100,6 +101,7 @@ const MusicPlayer = () => {
         console.log('Audio permissions granted');
       } catch (error) {
         console.log('Audio permissions error:', error);
+        setError('Audio permissions failed');
       }
     };
 
@@ -108,17 +110,18 @@ const MusicPlayer = () => {
 
   // Cleanup sound on unmount
   useEffect(() => {
-    return sound
-      ? () => {
-          console.log('Unloading sound');
-          sound.unloadAsync();
-        }
-      : undefined;
+    return () => {
+      if (sound) {
+        console.log('Unloading sound');
+        sound.unloadAsync();
+      }
+    };
   }, [sound]);
 
   const loadAndPlay = async (index: number) => {
     try {
       setIsLoading(true);
+      setError(null);
       
       // Unload previous sound
       if (sound) {
@@ -126,11 +129,11 @@ const MusicPlayer = () => {
         setSound(null);
       }
 
-      console.log('Loading track:', PLAYLIST[index].uri);
+      console.log('Loading track:', PLAYLIST[index].title);
       
-      // Create and play new sound
+      // Create and play new sound from local file
       const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: PLAYLIST[index].uri },
+        PLAYLIST[index].source,
         { shouldPlay: true },
         onPlaybackStatusUpdate
       );
@@ -141,6 +144,7 @@ const MusicPlayer = () => {
       
     } catch (error) {
       console.log('Error loading audio:', error);
+      setError('Failed to load audio');
       setIsPlaying(false);
     } finally {
       setIsLoading(false);
@@ -172,6 +176,7 @@ const MusicPlayer = () => {
       }
     } catch (error) {
       console.log('Playback error:', error);
+      setError('Playback error');
     }
   };
 
@@ -186,6 +191,7 @@ const MusicPlayer = () => {
         <Text style={styles.musicLabel}>Now Playing</Text>
         <Text style={styles.musicTitle}>{PLAYLIST[trackIndex].title}</Text>
         {isLoading && <Text style={styles.loadingText}>Loading audio...</Text>}
+        {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
       <View style={styles.musicControls}>
         <TouchableOpacity 
@@ -774,6 +780,12 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: THEME.accent,
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  errorText: {
+    color: '#ff6b6b',
     fontSize: 12,
     marginTop: 5,
     fontStyle: 'italic',
