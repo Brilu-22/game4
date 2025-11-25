@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
-  Modal, Platform, TextInput, Animated, ImageBackground, Dimensions 
+  Modal, Platform, TextInput, Animated, Dimensions 
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
@@ -10,15 +10,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 // --- AESTHETIC CONFIGURATION ---
 const COLUMNS = 4;
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const IS_DESKTOP = SCREEN_WIDTH > 768; // Simple responsive check
+const IS_DESKTOP = SCREEN_WIDTH > 768;
 
 const THEME = {
-  bg: '#F7F5F2', // Creamy beige from reference
+  bg: '#F7F5F2',
   glass: 'rgba(255, 255, 255, 0.65)',
   glassBorder: 'rgba(255, 255, 255, 0.9)',
-  text: '#1A1A1A', // Soft Black
+  text: '#1A1A1A',
   subText: '#666666',
-  accent: '#FF8C42', // The reference Orange
+  accent: '#FF8C42',
   accentGradient: ['#FF8C42', '#FF5F2E'],
   shadow: {
     shadowColor: "#5E5045",
@@ -29,13 +29,24 @@ const THEME = {
   }
 };
 
-// --- MUSIC PLAYLIST ASSETS ---
-// INSTRUCTION: Replace these URLs with require('./assets/your-song.mp3')
+// --- WORKING MUSIC PLAYLIST WITH TEST URLs ---
 const PLAYLIST = [
-  { title: "Deep Focus", uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
-  { title: "Lounge Vibe", uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
-  { title: "Brain Flow",  uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
-  { title: "Zen Garden",  uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" },
+  { 
+    title: "Deep Focus", 
+    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" 
+  },
+  { 
+    title: "Lounge Vibe", 
+    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" 
+  },
+  { 
+    title: "Brain Flow",  
+    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" 
+  },
+  { 
+    title: "Zen Garden",  
+    uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" 
+  },
 ];
 
 // --- TYPES ---
@@ -67,38 +78,100 @@ const TRIVIA_DATA: Record<GameKey, TriviaQuestion[]> = {
   ]
 };
 
-// --- COMPONENTS ---
-
-// 1. MUSIC PLAYER COMPONENT
+// --- FIXED MUSIC PLAYER COMPONENT ---
 const MusicPlayer = () => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackIndex, setTrackIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
 
+  // Request audio permissions and setup
   useEffect(() => {
-    return () => { if (sound) sound.unloadAsync(); };
+    const setupAudio = async () => {
+      try {
+        await Audio.requestPermissionsAsync();
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+        console.log('Audio permissions granted');
+      } catch (error) {
+        console.log('Audio permissions error:', error);
+      }
+    };
+
+    setupAudio();
+  }, []);
+
+  // Cleanup sound on unmount
+  useEffect(() => {
+    return sound
+      ? () => {
+          console.log('Unloading sound');
+          sound.unloadAsync();
+        }
+      : undefined;
   }, [sound]);
 
   const loadAndPlay = async (index: number) => {
-    if (sound) await sound.unloadAsync();
-    
-    // FOR LOCAL ASSETS USE: const { sound: newSound } = await Audio.Sound.createAsync(PLAYLIST[index].source);
-    // FOR URLS (DEMO):
-    const { sound: newSound } = await Audio.Sound.createAsync({ uri: PLAYLIST[index].uri });
-    
-    setSound(newSound);
-    setTrackIndex(index);
-    await newSound.playAsync();
-    setIsPlaying(true);
+    try {
+      setIsLoading(true);
+      
+      // Unload previous sound
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+      }
+
+      console.log('Loading track:', PLAYLIST[index].uri);
+      
+      // Create and play new sound
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: PLAYLIST[index].uri },
+        { shouldPlay: true },
+        onPlaybackStatusUpdate
+      );
+      
+      setSound(newSound);
+      setTrackIndex(index);
+      setIsPlaying(true);
+      
+    } catch (error) {
+      console.log('Error loading audio:', error);
+      setIsPlaying(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onPlaybackStatusUpdate = (status: any) => {
+    if (status.didJustFinish) {
+      nextTrack();
+    }
   };
 
   const togglePlay = async () => {
     if (!sound) {
       await loadAndPlay(trackIndex);
-    } else {
-      if (isPlaying) await sound.pauseAsync();
-      else await sound.playAsync();
-      setIsPlaying(!isPlaying);
+      return;
+    }
+
+    try {
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded) {
+        if (status.isPlaying) {
+          await sound.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      }
+    } catch (error) {
+      console.log('Playback error:', error);
     }
   };
 
@@ -112,12 +185,23 @@ const MusicPlayer = () => {
       <View style={styles.musicInfo}>
         <Text style={styles.musicLabel}>Now Playing</Text>
         <Text style={styles.musicTitle}>{PLAYLIST[trackIndex].title}</Text>
+        {isLoading && <Text style={styles.loadingText}>Loading audio...</Text>}
       </View>
       <View style={styles.musicControls}>
-        <TouchableOpacity onPress={togglePlay} style={styles.playBtn}>
-          <Text style={styles.playIcon}>{isPlaying ? "⏸" : "▶"}</Text>
+        <TouchableOpacity 
+          onPress={togglePlay} 
+          style={[styles.playBtn, isLoading && styles.disabledBtn]}
+          disabled={isLoading}
+        >
+          <Text style={styles.playIcon}>
+            {isLoading ? "⏳" : isPlaying ? "⏸" : "▶"}
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={nextTrack} style={styles.nextBtn}>
+        <TouchableOpacity 
+          onPress={nextTrack} 
+          style={[styles.nextBtn, isLoading && styles.disabledBtn]}
+          disabled={isLoading}
+        >
           <Text style={styles.nextIcon}>⏭</Text>
         </TouchableOpacity>
       </View>
@@ -125,13 +209,12 @@ const MusicPlayer = () => {
   );
 };
 
-// 2. PUZZLE GAME COMPONENT
+// --- PUZZLE GAME COMPONENT ---
 const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void }) => {
   const [tiles, setTiles] = useState<number[]>([]); 
   const [timer, setTimer] = useState(60);
   const [score, setScore] = useState(0);
   
-  // States
   const [isFrozen, setIsFrozen] = useState(false);
   const [isGodMode, setIsGodMode] = useState(false);
   const [godSelection, setGodSelection] = useState<number | null>(null);
@@ -139,18 +222,16 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
   const [currentQuestion, setCurrentQuestion] = useState<TriviaQuestion | null>(null);
   const [gameOver, setGameOver] = useState(false);
   
-  // Leaderboard & Name Persistence
   const [playerName, setPlayerName] = useState('');
   const [highScores, setHighScores] = useState<HighScore[]>([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
-  // Load Name on Mount
   useEffect(() => {
     AsyncStorage.getItem('last_player_name').then(name => {
       if(name) setPlayerName(name);
     });
     startNewGame();
-    // Load existing leaderboard for sidebar
+    
     AsyncStorage.getItem(`leaderboard_${gameKey}`).then(json => {
       if(json) setHighScores(JSON.parse(json));
     });
@@ -161,7 +242,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
     return () => clearInterval(triviaInterval);
   }, []);
 
-  // Timer
   useEffect(() => {
     let interval: any;
     if (timer > 0 && !isFrozen && !showTrivia && !gameOver) {
@@ -172,7 +252,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
     return () => clearInterval(interval);
   }, [timer, isFrozen, showTrivia, gameOver]);
 
-  // Logic
   const startNewGame = () => {
     let newTiles = Array.from({length: 15}, (_, i) => i + 1);
     newTiles.push(0); 
@@ -243,7 +322,11 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
       setScore(s => s + 200); 
       setIsFrozen(true);
       setIsGodMode(true);
-      setTimeout(() => { setIsFrozen(false); setIsGodMode(false); setGodSelection(null); }, 5000);
+      setTimeout(() => { 
+        setIsFrozen(false); 
+        setIsGodMode(false); 
+        setGodSelection(null); 
+      }, 5000);
     } else {
       setTimer(t => Math.max(0, t - 15));
     }
@@ -256,7 +339,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
   const submitScore = async () => {
     if (!playerName.trim()) return;
     
-    // Save name for future
     await AsyncStorage.setItem('last_player_name', playerName);
 
     const newEntry: HighScore = { name: playerName, score };
@@ -269,10 +351,8 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
 
   return (
     <View style={styles.gameContainer}>
-      {/* Background Decor */}
       <View style={styles.bgCircle} />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.glassBtn}>
           <Text style={styles.glassBtnText}>← Exit Lab</Text>
@@ -280,10 +360,7 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
         <Text style={styles.gameTitle}>{gameKey.toUpperCase()} PUZZLE</Text>
       </View>
 
-      {/* MAIN CONTENT SPLIT */}
       <View style={styles.splitLayout}>
-        
-        {/* LEFT: THE GAME BOARD */}
         <View style={styles.leftPanel}>
           <View style={[styles.gridContainer, isGodMode && styles.godModeBorder]}>
             {tiles.map((num, index) => (
@@ -307,9 +384,7 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
           {isGodMode && <Text style={styles.godModeText}>GOD MODE ACTIVE</Text>}
         </View>
 
-        {/* RIGHT: DASHBOARD */}
         <ScrollView style={styles.rightPanel} contentContainerStyle={{gap: 20}}>
-          {/* Stats Card */}
           <View style={styles.dashboardCard}>
             <View style={styles.statRow}>
               <View>
@@ -325,10 +400,8 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
             </View>
           </View>
 
-          {/* Music Player */}
           <MusicPlayer />
 
-          {/* Mini Leaderboard */}
           <View style={styles.dashboardCard}>
             <Text style={styles.dashTitle}>Top Researchers</Text>
             {highScores.length === 0 ? (
@@ -341,7 +414,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
                 </View>
               ))
             )}
-            {/* Show current player if set */}
             {playerName !== '' && !gameOver && (
                 <View style={{marginTop: 10, borderTopWidth: 1, borderColor: '#eee', paddingTop: 5}}>
                      <Text style={styles.statLabel}>PLAYING AS</Text>
@@ -352,8 +424,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
         </ScrollView>
       </View>
 
-      {/* MODALS */}
-      {/* Trivia */}
       <Modal visible={showTrivia} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.modalGlass}>
@@ -370,7 +440,6 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
         </View>
       </Modal>
 
-      {/* Game Over */}
       <Modal visible={gameOver} transparent animationType="slide">
         <View style={styles.overlay}>
           <View style={styles.modalGlass}>
@@ -409,14 +478,18 @@ const PuzzleGame = ({ gameKey, onExit }: { gameKey: GameKey, onExit: () => void 
   );
 };
 
-// 3. MAIN APP
+// --- MAIN APP COMPONENT ---
 export default function App() {
   const [screen, setScreen] = useState<'splash' | 'menu' | GameKey>('splash');
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     setTimeout(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 1500, useNativeDriver: Platform.OS !== 'web' }).start(() => setScreen('menu'));
+      Animated.timing(fadeAnim, { 
+        toValue: 0, 
+        duration: 1500, 
+        useNativeDriver: Platform.OS !== 'web' 
+      }).start(() => setScreen('menu'));
     }, 2500);
   }, []);
 
@@ -455,116 +528,403 @@ export default function App() {
 
 const MenuCard = ({ title, sub, onPress }: any) => (
   <TouchableOpacity style={styles.menuCard} onPress={onPress}>
-    <LinearGradient colors={['rgba(255,255,255,0.8)', 'rgba(255,255,255,0.4)']} style={styles.menuCardGradient}>
+    <LinearGradient 
+      colors={['rgba(255,255,255,0.8)', 'rgba(255,255,255,0.4)']} 
+      style={styles.menuCardGradient}
+    >
       <View>
         <Text style={styles.cardTitle}>{title}</Text>
         <Text style={styles.cardSub}>{sub}</Text>
       </View>
-      <View style={styles.arrowCircle}><Text style={{color:'#fff'}}>→</Text></View>
+      <View style={styles.arrowCircle}>
+        <Text style={{color:'#fff'}}>→</Text>
+      </View>
     </LinearGradient>
   </TouchableOpacity>
 );
 
 // --- STYLES ---
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: THEME.bg, justifyContent: 'center', alignItems: 'center' },
+  container: { 
+    flex: 1, 
+    backgroundColor: THEME.bg, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
   
-  // Background Decor
   bgCircle: {
-    position: 'absolute', top: -100, right: -100, width: 500, height: 500, borderRadius: 250,
-    backgroundColor: THEME.accent, opacity: 0.15,
+    position: 'absolute', 
+    top: -100, 
+    right: -100, 
+    width: 500, 
+    height: 500, 
+    borderRadius: 250,
+    backgroundColor: THEME.accent, 
+    opacity: 0.15,
   },
 
-  // Splash
-  splashPre: { fontSize: 24, color: THEME.text, letterSpacing: 4, fontWeight: '300' },
-  splashEQ: { fontSize: 120, color: THEME.accent, fontWeight: '900', lineHeight: 120 },
-  splashPost: { fontSize: 40, color: THEME.text, fontWeight: '800' },
+  splashPre: { 
+    fontSize: 24, 
+    color: THEME.text, 
+    letterSpacing: 4, 
+    fontWeight: '300' 
+  },
+  splashEQ: { 
+    fontSize: 120, 
+    color: THEME.accent, 
+    fontWeight: '900', 
+    lineHeight: 120 
+  },
+  splashPost: { 
+    fontSize: 40, 
+    color: THEME.text, 
+    fontWeight: '800' 
+  },
 
-  // Menu
-  menuContent: { padding: 40, width: '100%', maxWidth: 800, alignSelf: 'center' },
-  menuHeader: { fontSize: 42, fontWeight: '300', marginBottom: 40, color: THEME.text },
-  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 },
-  menuCard: { width: '48%', minWidth: 280, borderRadius: 20, ...THEME.shadow },
-  menuCardGradient: { padding: 30, borderRadius: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#fff' },
-  cardTitle: { fontSize: 20, fontWeight: '700', color: THEME.text },
-  cardSub: { fontSize: 14, color: THEME.subText, marginTop: 5 },
-  arrowCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center' },
+  menuContent: { 
+    padding: 40, 
+    width: '100%', 
+    maxWidth: 800, 
+    alignSelf: 'center' 
+  },
+  menuHeader: { 
+    fontSize: 42, 
+    fontWeight: '300', 
+    marginBottom: 40, 
+    color: THEME.text 
+  },
+  menuGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 20 
+  },
+  menuCard: { 
+    width: '48%', 
+    minWidth: 280, 
+    borderRadius: 20, 
+    ...THEME.shadow 
+  },
+  menuCardGradient: { 
+    padding: 30, 
+    borderRadius: 20, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: '#fff' 
+  },
+  cardTitle: { 
+    fontSize: 20, 
+    fontWeight: '700', 
+    color: THEME.text 
+  },
+  cardSub: { 
+    fontSize: 14, 
+    color: THEME.subText, 
+    marginTop: 5 
+  },
+  arrowCircle: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: '#1A1A1A', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
 
-  // Game Layout
-  gameContainer: { flex: 1, backgroundColor: THEME.bg, padding: 20 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  gameTitle: { fontSize: 24, fontWeight: '900', color: THEME.text, letterSpacing: 2 },
-  glassBtn: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: 30, borderWidth: 1, borderColor: '#fff' },
-  glassBtnText: { fontWeight: '600', color: THEME.text },
+  gameContainer: { 
+    flex: 1, 
+    backgroundColor: THEME.bg, 
+    padding: 20 
+  },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 20 
+  },
+  gameTitle: { 
+    fontSize: 24, 
+    fontWeight: '900', 
+    color: THEME.text, 
+    letterSpacing: 2 
+  },
+  glassBtn: { 
+    paddingVertical: 10, 
+    paddingHorizontal: 20, 
+    backgroundColor: 'rgba(255,255,255,0.5)', 
+    borderRadius: 30, 
+    borderWidth: 1, 
+    borderColor: '#fff' 
+  },
+  glassBtnText: { 
+    fontWeight: '600', 
+    color: THEME.text 
+  },
 
-  splitLayout: { flex: 1, flexDirection: IS_DESKTOP ? 'row' : 'column', gap: 30, maxWidth: 1200, alignSelf: 'center', width: '100%' },
+  splitLayout: { 
+    flex: 1, 
+    flexDirection: IS_DESKTOP ? 'row' : 'column', 
+    gap: 30, 
+    maxWidth: 1200, 
+    alignSelf: 'center', 
+    width: '100%' 
+  },
   
-  // LEFT: Grid
-  leftPanel: { flex: 6, justifyContent: 'center', alignItems: 'center' },
-  gridContainer: { 
-    width: '100%', aspectRatio: 1, maxWidth: 600, 
-    flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 10,
+  leftPanel: { 
+    flex: 6, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
   },
-  godModeBorder: { borderColor: THEME.accent, borderWidth: 2, borderRadius: 10 },
-  godModeText: { color: THEME.accent, fontWeight: '900', fontSize: 18, marginTop: 10 },
+  gridContainer: { 
+    width: '100%', 
+    aspectRatio: 1, 
+    maxWidth: 600, 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 10, 
+    padding: 10,
+  },
+  godModeBorder: { 
+    borderColor: THEME.accent, 
+    borderWidth: 2, 
+    borderRadius: 10 
+  },
+  godModeText: { 
+    color: THEME.accent, 
+    fontWeight: '900', 
+    fontSize: 18, 
+    marginTop: 10 
+  },
   
   tile: { 
-    width: '23%', height: '23%', borderRadius: 15, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#fff', ...THEME.shadow 
+    width: '23%', 
+    height: '23%', 
+    borderRadius: 15, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    backgroundColor: '#fff', 
+    ...THEME.shadow 
   },
-  activeTile: { backgroundColor: '#FDFDFD' },
-  selectedTile: { backgroundColor: THEME.accent },
-  emptyTile: { backgroundColor: 'transparent', shadowOpacity: 0 },
-  tileNumber: { fontSize: 32, fontWeight: '300', color: THEME.text },
+  activeTile: { 
+    backgroundColor: '#FDFDFD' 
+  },
+  selectedTile: { 
+    backgroundColor: THEME.accent 
+  },
+  emptyTile: { 
+    backgroundColor: 'transparent', 
+    shadowOpacity: 0 
+  },
+  tileNumber: { 
+    fontSize: 32, 
+    fontWeight: '300', 
+    color: THEME.text 
+  },
 
-  // RIGHT: Dashboard
-  rightPanel: { flex: 4, height: '100%' },
+  rightPanel: { 
+    flex: 4, 
+    height: '100%' 
+  },
   
   dashboardCard: {
-    backgroundColor: THEME.glass, borderRadius: 20, padding: 25,
-    borderWidth: 1, borderColor: THEME.glassBorder, ...THEME.shadow
+    backgroundColor: THEME.glass, 
+    borderRadius: 20, 
+    padding: 25,
+    borderWidth: 1, 
+    borderColor: THEME.glassBorder, 
+    ...THEME.shadow
   },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  statLabel: { fontSize: 12, fontWeight: '700', color: THEME.subText, letterSpacing: 1 },
-  statValue: { fontSize: 36, fontWeight: '300', color: THEME.text },
+  statRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between' 
+  },
+  statLabel: { 
+    fontSize: 12, 
+    fontWeight: '700', 
+    color: THEME.subText, 
+    letterSpacing: 1 
+  },
+  statValue: { 
+    fontSize: 36, 
+    fontWeight: '300', 
+    color: THEME.text 
+  },
 
-  // Music Player Styles
   musicCard: {
-    backgroundColor: '#1A1A1A', borderRadius: 20, padding: 25, ...THEME.shadow
+    backgroundColor: '#1A1A1A', 
+    borderRadius: 20, 
+    padding: 25, 
+    ...THEME.shadow
   },
-  musicInfo: { marginBottom: 20 },
-  musicLabel: { color: THEME.accent, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
-  musicTitle: { color: '#fff', fontSize: 20, fontWeight: '600', marginTop: 5 },
-  musicControls: { flexDirection: 'row', gap: 15 },
-  playBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-  playIcon: { fontSize: 20 },
-  nextBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
-  nextIcon: { fontSize: 20, color: '#fff' },
+  musicInfo: { 
+    marginBottom: 20 
+  },
+  musicLabel: { 
+    color: THEME.accent, 
+    fontSize: 10, 
+    fontWeight: '700', 
+    letterSpacing: 1 
+  },
+  musicTitle: { 
+    color: '#fff', 
+    fontSize: 20, 
+    fontWeight: '600', 
+    marginTop: 5 
+  },
+  loadingText: {
+    color: THEME.accent,
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  musicControls: { 
+    flexDirection: 'row', 
+    gap: 15 
+  },
+  playBtn: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#fff', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  disabledBtn: {
+    opacity: 0.5,
+  },
+  playIcon: { 
+    fontSize: 20 
+  },
+  nextBtn: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#333', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  nextIcon: { 
+    fontSize: 20, 
+    color: '#fff' 
+  },
 
-  // Mini Leaderboard
-  dashTitle: { fontSize: 16, fontWeight: '700', marginBottom: 15, color: THEME.text },
-  miniScoreRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
-  miniScoreName: { fontWeight: '600', color: THEME.text },
-  miniScoreVal: { fontWeight: '300', color: THEME.text },
+  dashTitle: { 
+    fontSize: 16, 
+    fontWeight: '700', 
+    marginBottom: 15, 
+    color: THEME.text 
+  },
+  miniScoreRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    paddingVertical: 8, 
+    borderBottomWidth: 1, 
+    borderColor: 'rgba(0,0,0,0.05)' 
+  },
+  miniScoreName: { 
+    fontWeight: '600', 
+    color: THEME.text 
+  },
+  miniScoreVal: { 
+    fontWeight: '300', 
+    color: THEME.text 
+  },
 
-  // Modals
-  overlay: { flex: 1, backgroundColor: 'rgba(230, 230, 220, 0.8)', justifyContent: 'center', alignItems: 'center' },
-  modalGlass: { width: '90%', maxWidth: 450, backgroundColor: '#fff', padding: 40, borderRadius: 30, ...THEME.shadow, alignItems: 'center' },
-  modalTitle: { fontSize: 14, fontWeight: '900', color: THEME.accent, letterSpacing: 2, marginBottom: 20 },
-  modalBody: { fontSize: 22, textAlign: 'center', marginBottom: 30, fontWeight: '400', color: THEME.text },
-  scoreBig: { fontSize: 80, fontWeight: '900', color: THEME.text, marginBottom: 20 },
+  overlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(230, 230, 220, 0.8)', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  modalGlass: { 
+    width: '90%', 
+    maxWidth: 450, 
+    backgroundColor: '#fff', 
+    padding: 40, 
+    borderRadius: 30, 
+    ...THEME.shadow, 
+    alignItems: 'center' 
+  },
+  modalTitle: { 
+    fontSize: 14, 
+    fontWeight: '900', 
+    color: THEME.accent, 
+    letterSpacing: 2, 
+    marginBottom: 20 
+  },
+  modalBody: { 
+    fontSize: 22, 
+    textAlign: 'center', 
+    marginBottom: 30, 
+    fontWeight: '400', 
+    color: THEME.text 
+  },
+  scoreBig: { 
+    fontSize: 80, 
+    fontWeight: '900', 
+    color: THEME.text, 
+    marginBottom: 20 
+  },
   
-  input: { width: '100%', padding: 15, backgroundColor: '#F5F5F5', borderRadius: 12, fontSize: 18, marginBottom: 20, textAlign: 'center' },
-  primaryBtn: { width: '100%', padding: 18, backgroundColor: '#1A1A1A', borderRadius: 15, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  secondaryBtn: { marginTop: 10, padding: 15 },
-  btnTextSec: { color: THEME.subText, fontWeight: '600' },
+  input: { 
+    width: '100%', 
+    padding: 15, 
+    backgroundColor: '#F5F5F5', 
+    borderRadius: 12, 
+    fontSize: 18, 
+    marginBottom: 20, 
+    textAlign: 'center' 
+  },
+  primaryBtn: { 
+    width: '100%', 
+    padding: 18, 
+    backgroundColor: '#1A1A1A', 
+    borderRadius: 15, 
+    alignItems: 'center' 
+  },
+  btnText: { 
+    color: '#fff', 
+    fontWeight: 'bold', 
+    fontSize: 16 
+  },
+  secondaryBtn: { 
+    marginTop: 10, 
+    padding: 15 
+  },
+  btnTextSec: { 
+    color: THEME.subText, 
+    fontWeight: '600' 
+  },
 
-  optionGrid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  optionBtn: { width: '48%', padding: 15, backgroundColor: '#F7F5F2', borderRadius: 12, alignItems: 'center' },
-  optionText: { fontWeight: '600', color: THEME.text },
+  optionGrid: { 
+    width: '100%', 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 10 
+  },
+  optionBtn: { 
+    width: '48%', 
+    padding: 15, 
+    backgroundColor: '#F7F5F2', 
+    borderRadius: 12, 
+    alignItems: 'center' 
+  },
+  optionText: { 
+    fontWeight: '600', 
+    color: THEME.text 
+  },
 
-  // Leaderboard Modal
-  scoreRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' },
-  scoreTxt: { fontSize: 18, fontWeight: '500' }
+  scoreRow: { 
+    width: '100%', 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    paddingVertical: 12, 
+    borderBottomWidth: 1, 
+    borderColor: '#eee' 
+  },
+  scoreTxt: { 
+    fontSize: 18, 
+    fontWeight: '500' 
+  }
 });
