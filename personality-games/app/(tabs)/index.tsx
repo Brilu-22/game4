@@ -41,10 +41,10 @@ const PLAYLIST = [
 ];
 
 const PROFILES = [
-  { id: 'mwape', name: 'MWAPE', img: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=400&h=400&fit=crop" },
-  { id: 'brilu', name: 'BRILU', img: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&h=400&fit=crop" },
-  { id: 'ngozi', name: 'NGOZI', img: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=400&fit=crop" },
-  { id: 'kurt',  name: 'KURT',  img: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop" },
+  { id: 'mwape', name: 'MWAPE', img: "../../assets/mwape.png" },
+  { id: 'brilu', name: 'BRILU', img: "../../assets/brilu.JPG" },
+  { id: 'ngozi', name: 'NGOZI', img: "../../assets/ngozi.png" },
+  { id: 'kurt',  name: 'KURT',  img: "../../assets/kurt.png" },
 ];
 
 const QUOTES = [
